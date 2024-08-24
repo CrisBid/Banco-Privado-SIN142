@@ -24,6 +24,24 @@ async def cadastro(data: CadastroData, db=Depends(get_db)):
 async def login(data: LoginData, db=Depends(get_db)):
     return user_services.login_usuario(data, db)
 
+# Rotas do FastAPI
+
+@router.put("/update-saldo")
+def update_saldo_endpoint(user_id: int, valor: float, db=Depends(get_db)):
+    return user_services.update_saldo(db, user_id, valor)
+
+@router.get("/get-saldo")
+def get_saldo_endpoint(user_id: int, db=Depends(get_db)):
+    return user_services.get_saldo(db, user_id)
+
+@router.put("/set-chave-pix")
+def set_chave_pix_endpoint(user_id: int, chave_pix: str, db=Depends(get_db)):
+    return user_services.set_chave_pix(db, user_id, chave_pix)
+
+@router.get("/get-user")
+def get_user_by_id_endpoint(user_id: int, db=Depends(get_db)):
+    return user_services.get_user_by_id(db, user_id)
+
 """"
 @router.post("/cadastro")
 async def cadastro(data: CadastroData, banco_a: BancoA = Depends()):

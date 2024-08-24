@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from app.routes import router
 from app.services.coreServices import CoreService
 from threading import Thread
-
+from app.database.CreateDatabase import create_database, create_tables
 app = FastAPI()
 
 app.include_router(router)
@@ -15,8 +15,11 @@ instituicao_secret = "$2b$12$Cea4mD6FUagDXiiJfqmNw.rupw8CrE0av832niu/xkGtfDly/tR
 # Inicializar o serviço de token
 token_service = CoreService(central_bank_login_url, instituicao_id, instituicao_secret)
 
+
 @app.on_event("startup")
 def startup_event():
+    create_database()
+    create_tables() 
     # Fazer login no banco central ao iniciar a aplicação
     token_service.login()
 
