@@ -1,71 +1,84 @@
 from fastapi import FastAPI, HTTPException, Depends, status
 from validate_docbr import CPF
 from psycopg2.extras import RealDictCursor
+from jose import jwt
+from datetime import timedelta
+from app.services.auth import create_access_token, verify_password, get_password_hash
 from app.models.UserModel import CadastroData, LoginData, ValorData, ChavePixData, TransferenciaData
 from hashlib import sha256
 import psycopg2
 
+ACCESS_TOKEN_EXPIRE_MINUTES = 1800
+
 def cadastrar_usuario(data: CadastroData, db):
     cpf_v = CPF()
+    
+    # Verifica se o CPF é válido
     if not cpf_v.validate(data.cpf):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid CPF")
     
     with db.cursor(cursor_factory=RealDictCursor) as cursor:
+        # Verifica se o login já existe no banco de dados
+        cursor.execute("SELECT * FROM usuarios WHERE login = %s;", (data.login,))
+        user = cursor.fetchone()
+        if user:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Login already exists")
+
+        # Hash da senha antes de armazenar no banco de dados
+        hashed_password = get_password_hash(data.senha)
+        
+        # Insere o novo usuário no banco de dados
         cursor.execute(
             """
             INSERT INTO usuarios (nome, cpf, data_nascimento, login, senha, tel)
             VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
             """,
-            (data.nome, data.cpf, data.data_nascimento, data.login, data.senha, data.tel)
+            (data.nome, data.cpf, data.data_nascimento, data.login, hashed_password, data.tel)
         )
+        
         user_id = cursor.fetchone()["id"]
         db.commit()
     
-    return {"message": "User registered successfully", "user_id": user_id}
+    # Gera o token JWT para o novo usuário
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": data.login},  # "sub" contém o login do usuário
+        expires_delta=access_token_expires
+    )
+    
+    # Retorna o token JWT no cadastro bem-sucedido
+    return {"access_token": access_token, "token_type": "bearer"}
 
 def login_usuario(data: LoginData, db):
     with db.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(
-            "SELECT id, senha FROM usuarios WHERE login = %s;",
+            "SELECT id, login, senha FROM usuarios WHERE login = %s;",
             (data.login,)
         )
         user = cursor.fetchone()
-        if user and user['senha'] == data.senha:
-            return {"message": "Login successful", "user_id": user['id']}
-        else:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid login credentials")
 
-# Função para hashear a senha
-def hash_password(password):
-    return sha256(password.encode()).hexdigest()
+        # Verifica se o usuário existe e se a senha está correta
+        if not user or not verify_password(data.senha, user['senha']):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid login credentials"
+            )
+
+        # Cria o token JWT para o usuário autenticado
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user['login']},  # O "sub" contém o login do usuário
+            expires_delta=access_token_expires
+        )
+
+        # Retorna o token JWT
+        return {"access_token": access_token, "token_type": "bearer"}
 
 # Função para obter um usuário pelo login
 def get_user_by_login(db, login):
     with db.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute("SELECT * FROM usuarios WHERE login = %s;", (login,))
         return cursor.fetchone()
-
-# Função para criar um usuário
-def create_user(db, nome, cpf, data_nascimento, login, senha, tel):
-    senha_hashed = hash_password(senha)
-    with db.cursor(cursor_factory=RealDictCursor) as cursor:
-        cursor.execute(
-            """
-            INSERT INTO usuarios (nome, cpf, data_nascimento, login, senha, tel)
-            VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
-            """,
-            (nome, cpf, data_nascimento, login, senha_hashed, tel)
-        )
-        user_id = cursor.fetchone()["id"]
-        db.commit()
-    return {"message": "User created successfully", "user_id": user_id}
-
-# Função para realizar o login de um usuário
-def login_user(db, login, senha):
-    user = get_user_by_login(db, login)
-    if user and user["senha"] == hash_password(senha):
-        return {"message": "Login successful", "user": user}
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid login credentials")
 
 # Função para atualizar o saldo
 def update_saldo(db, user_id, valor):
@@ -108,59 +121,39 @@ def get_user_by_id(db, user_id):
         cursor.execute("SELECT * FROM usuarios WHERE id = %s;", (user_id,))
         return cursor.fetchone()
 
-""""
-
-from hashlib import sha256
-
-# Funções auxiliares do banco
-def hash_password(password):
-    return sha256(password.encode()).hexdigest()
-
-def get_user_by_login(conn, login):
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM usuarios WHERE login=?", (login,))
-    return cur.fetchone()
-
-def create_user(conn, nome, cpf, data_nascimento, login, senha, tel):
-    senha_hashed = hash_password(senha)
-    sql = ''' INSERT INTO usuarios(nome, cpf, data_nascimento, login, senha, tel)
-              VALUES(?,?,?,?,?,?) '''
-    cur = conn.cursor()
-    cur.execute(sql, (nome, cpf, data_nascimento, login, senha_hashed, tel))
-    conn.commit()
-    return cur.lastrowid
-
-def login_user(conn, login, senha):
-    user = get_user_by_login(conn, login)
-    if user and user[5] == hash_password(senha):
-        return user
-    return None
-
-def update_saldo(conn, user_id, valor):
-    sql = ''' UPDATE usuarios
-              SET saldo = saldo + ?
-              WHERE id = ? '''
-    cur = conn.cursor()
-    cur.execute(sql, (valor, user_id))
-    conn.commit()
-
-def get_saldo(conn, user_id):
-    cur = conn.cursor()
-    cur.execute("SELECT saldo FROM usuarios WHERE id=?", (user_id,))
-    return cur.fetchone()[0]
-
-def set_chave_pix(conn, user_id, chave_pix):
-    sql = ''' UPDATE usuarios
-              SET chave_pix = ?
-              WHERE id = ? '''
-    cur = conn.cursor()
-    cur.execute(sql, (chave_pix, user_id))
-    conn.commit()
-
-def get_user_by_id(conn, user_id):
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM usuarios WHERE id=?", (user_id,))
-    return cur.fetchone()
-
-
-"""
+# Função para retirar saldo
+def retirar_saldo(db, user_id, valor):
+    with db.cursor(cursor_factory=RealDictCursor) as cursor:
+        # Primeiro, buscamos o saldo atual do usuário
+        cursor.execute(
+            """
+            SELECT saldo FROM usuarios
+            WHERE id = %s;
+            """,
+            (user_id,)
+        )
+        user = cursor.fetchone()
+        
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        saldo_atual = user['saldo']
+        
+        # Verificamos se o saldo atual é suficiente para retirar o valor desejado
+        if saldo_atual < valor:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Insufficient balance")
+        
+        # Subtraímos o valor do saldo
+        cursor.execute(
+            """
+            UPDATE usuarios
+            SET saldo = saldo - %s
+            WHERE id = %s;
+            """,
+            (valor, user_id)
+        )
+        
+        # Confirmando as mudanças
+        db.commit()
+        
+    return {"message": "Saldo retirado com sucesso"}

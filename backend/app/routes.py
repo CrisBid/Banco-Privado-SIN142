@@ -6,12 +6,16 @@ from app.services.initituicaoService import BancoA
 from app.models.UserModel import CadastroData, LoginData, ValorData, ChavePixData, TransferenciaData
 import app.services.userService as user_services
 from app.database.Conection import get_db
+from jose import JWTError, jwt
+from datetime import timedelta
+from app.services.auth import authenticate_user, create_access_token, get_current_user
 #import requisicoes
 
 router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+# Rotas protegidas por JWT
 @router.get("/")
 async def index():
     return {"message": "API is up and running"}
@@ -24,81 +28,22 @@ async def cadastro(data: CadastroData, db=Depends(get_db)):
 async def login(data: LoginData, db=Depends(get_db)):
     return user_services.login_usuario(data, db)
 
-# Rotas do FastAPI
-
 @router.put("/update-saldo")
-def update_saldo_endpoint(user_id: int, valor: float, db=Depends(get_db)):
+def update_saldo_endpoint(user_id: int, valor: float, db=Depends(get_db), current_user=Depends(get_current_user)):
     return user_services.update_saldo(db, user_id, valor)
 
 @router.get("/get-saldo")
-def get_saldo_endpoint(user_id: int, db=Depends(get_db)):
+def get_saldo_endpoint(user_id: int, db=Depends(get_db), current_user=Depends(get_current_user)):
     return user_services.get_saldo(db, user_id)
 
 @router.put("/set-chave-pix")
-def set_chave_pix_endpoint(user_id: int, chave_pix: str, db=Depends(get_db)):
+def set_chave_pix_endpoint(user_id: int, chave_pix: str, db=Depends(get_db), current_user=Depends(get_current_user)):
     return user_services.set_chave_pix(db, user_id, chave_pix)
 
 @router.get("/get-user")
-def get_user_by_id_endpoint(user_id: int, db=Depends(get_db)):
+def get_user_by_id_endpoint(user_id: int, db=Depends(get_db), current_user=Depends(get_current_user)):
     return user_services.get_user_by_id(db, user_id)
 
-""""
-@router.post("/cadastro")
-async def cadastro(data: CadastroData, banco_a: BancoA = Depends()):
-    cpf_v = CPF()
-    if cpf_v.validate(data.cpf):
-        response = banco_a.cadastrar_usuario(
-            data.nome, data.cpf, data.data_nascimento, data.login, data.senha, data.tel
-        )
-        if response['status'] == 'success':
-            return {"message": "User registered successfully"}
-        else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Registration failed")
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid CPF")
-
-@router.post("/login")
-async def login(data: LoginData, banco_a: BancoA = Depends()):
-    response = banco_a.login_usuario(data.login, data.senha)
-    if response['status'] == 'success':
-        return {"message": "Login successful", "user_id": response['user'][0]}
-    else:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=response['message'])
-
-@router.get("/dashboard")
-async def dashboard(user_id: str = Depends(oauth2_scheme), banco_a: BancoA = Depends()):
-    user = banco_a.get_user_by_id(user_id)
-    saldo = userService.get_saldo(banco_a.conn, user_id)
-    return {"user": user, "saldo": saldo}
-
-@router.post("/depositar")
-async def depositar(data: ValorData, user_id: str = Depends(oauth2_scheme), banco_a: BancoA = Depends()):
-    response = banco_a.depositar(user_id, data.valor)
-    return {"message": "Deposit successful"}
-
-@router.post("/retirar")
-async def retirar(data: ValorData, user_id: str = Depends(oauth2_scheme), banco_a: BancoA = Depends()):
-    response = banco_a.retirar(user_id, data.valor)
-    return {"message": "Withdrawal successful"}
-
-@router.post("/definir_chave_pix")
-async def definir_chave_pix(data: ChavePixData, user_id: str = Depends(oauth2_scheme), banco_a: BancoA = Depends()):
-    response = banco_a.definir_chave_pix(user_id, data.chave_pix)
-    return {"message": "Pix key defined successfully"}
-
-@router.post("/transferir")
-async def transferir(data: TransferenciaData, user_id: str = Depends(oauth2_scheme), banco_a: BancoA = Depends()):
-    response = banco_a.transferir(user_id, data.chave_pix_destino, data.valor)
-    return {"message": "Transfer successful"}
-
-@router.get("/logout")
-async def logout():
-    return {"message": "Logout successful"}
-
-#@router.post("/loginCore")
-#async def loginCore():
-    #response = requisicoes.requisicao_core()
-    #return response
-
-
-"""
+@router.put("/retirar-saldo")
+def retirar_saldo_endpoint(user_id: int, valor: float, db=Depends(get_db), current_user=Depends(get_current_user)):
+    return user_services.retirar_saldo(db, user_id, valor)

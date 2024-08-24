@@ -14,7 +14,7 @@ class CoreService:
         response = requests.post(self.login_url, json={"instituicao_id": self.instituicao_id, "instituicao_secret": self.instituicao_secret})
         if response.status_code == 200:
             self.token = response.json().get("access_token")
-            self.expiration_time = time.time() + 1800  # 1800 segundos (30 minutos)
+            self.expiration_time = time.time() + response.json().get("validateTime")
             print("Login successful, token acquired.")
         else:
             raise Exception("Failed to login to Central Bank API")
